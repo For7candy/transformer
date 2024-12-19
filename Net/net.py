@@ -28,8 +28,8 @@ class Embeddings(nn.Module):
         # x为输入，(batch_size, sequence.length, one-hot)   # !!!这里知乎答主应该理解有错误
         # one-hot转词嵌入
         # (batch_size, sequence.length, 512)
-        # return self.lut(x) * math.sqrt(self.d_model)
-        return self.lut(x)
+        return self.lut(x) * math.sqrt(self.d_model)  # 【?】
+        # return self.lut(x)
 
 
 class PositionalEncoding(nn.Module):
@@ -197,6 +197,7 @@ class SublayerConnection(nn.Module):
         :return: x+sublayer(x) -> 残差结构
         """
         # 归一化->sublayer->dropout->+x
+        # return x+self.dropout(self.norm(sublayer(x)))
         return x+self.dropout(sublayer(self.norm(x)))
 
 
@@ -270,9 +271,9 @@ class Encoder(nn.Module):
         return self.norm(x)
 
 
-class Decoderlayer(nn.Module):
+class DecoderLayer(nn.Module):
     def __init__(self, size, self_attn, src_attn, feed_forward, dropout):
-        super(Decoderlayer, self).__init__()
+        super(DecoderLayer, self).__init__()
         self.size = size  # 512
         self.self_attn = self_attn
         self.src_attn = src_attn
@@ -331,3 +332,90 @@ class Generator(nn.Module):
         # 得到(30, 10, trg_vocab_size)
 
 
+class EncoderDecoder(nn.Module):
+    """
+    A standard Encoder-Decoder architecture.
+    Base for this and many other models.
+    """
+    def __init__(self, encoder, decoder,
+      src_embed, tgt_embed, generator):
+        super(EncoderDecoder, self).__init__()
+        self.encoder = encoder
+        # Encoder对象
+        self.decoder = decoder
+        # Decoder对象
+        self.src_embed = src_embed
+        # 源语言序列的编码，包括词嵌入和位置编码
+        self.tgt_embed = tgt_embed
+        # 目标语言序列的编码，包括词嵌入和位置编码
+        self.generator = generator
+        # 生成器
+
+    def forward(self, src, tgt, src_mask, tgt_mask):
+        "Take in and process masked src and target sequences."
+        return self.decode(self.encode(src, src_mask), src_mask,
+                            tgt, tgt_mask)
+        # 先对源语言序列进行编码，
+        # 结果作为memory传递给目标语言的编码器
+
+    def encode(self, src, src_mask):
+        # src = (batch.size, seq.length)
+        # src_mask 负责对src加掩码
+        return self.encoder(self.src_embed(src), src_mask)
+        # 对源语言序列进行编码，得到的结果为
+        # (batch.size, seq.length, 512)的tensor
+
+    def decode(self, memory, src_mask, tgt, tgt_mask):
+        return self.decoder(self.tgt_embed(tgt),
+          memory, src_mask, tgt_mask)
+        # 对目标语言序列进行编码，得到的结果为
+        # (batch.size, seq.length, 512)的tensor
+
+
+def subsequent_mask(size):
+    "Mask out subsequent positions."
+    # e.g., size=10
+    attn_shape = (1, size, size)  # (1, 10, 10)
+    subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
+    # triu: 负责生成一个三角矩阵，k-th对角线以下都是设置为0
+    # 上三角中元素为1.
+
+    return torch.from_numpy(subsequent_mask) == 0
+    # 反转上面的triu得到的上三角矩阵，修改为下三角矩阵
+    # [[[1, 0, 0],
+    #   [1, 1, 0],
+    #   [1, 1, 1]]]
+
+
+def make_model(src_vocab, tgt_vocab, N=6, d_model=512, d_ff=2048, h=8, dropout=0.1):
+    c = copy.deepcopy
+    attn = MultiHeadedAttention(h, d_model)
+
+    ff = PositionwiseFeedForward(d_model, d_ff, dropout)
+
+    position = PositionalEncoding(d_model, dropout)
+
+    model = EncoderDecoder(
+        Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
+        Decoder(DecoderLayer(d_model, c(attn), c(attn),
+                         c(ff), dropout), N),
+        nn.Sequential(Embeddings(d_model, src_vocab), c(position)),
+        nn.Sequential(Embeddings(d_model, tgt_vocab), c(position)),
+        Generator(d_model, tgt_vocab)
+    )
+
+    for p in model.parameters():
+        if p.dim() > 1:
+            nn.init.xavier_uniform_(p)  # 使用xavier_uniform(p)来初始化二维以上的参数
+    return model  # EncoderDecoder 对象
+
+
+if __name__ == "__main__":
+    tmp_model = make_model(30000, 30000, 6)
+    # src_vocab_size=30000, tgt_vocab_size=30000, N=6
+    # None
+    for name, param in tmp_model.named_parameters():
+        if param.requires_grad:
+            print (name, param.data.shape)
+        else:
+            print ('no gradient necessary', name, param.data.shape)

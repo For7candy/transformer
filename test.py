@@ -3,6 +3,24 @@ import math
 import numpy as np
 import torch.nn as nn
 
+from torch.autograd import Variable
+
+
+def subsequent_mask(size):
+    "Mask out subsequent positions."
+    # e.g., size=10
+    attn_shape = (1, size, size)  # (1, 10, 10)
+    subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
+    # triu: 负责生成一个三角矩阵，k-th对角线以下都是设置为0
+    # 上三角中元素为1.
+
+    return torch.from_numpy(subsequent_mask) == 0
+    # 反转上面的triu得到的上三角矩阵，修改为下三角矩阵
+    # [[[1, 0, 0],
+    #   [1, 1, 0],
+    #   [1, 1, 1]]]
+
+
 def test_PE():
     max_len = 100
     d_model = 50
@@ -65,5 +83,26 @@ def test_nn_Embedding():
     print(lut(x))
 
 
+def test_mask():
+    # self.src_mask = (src != pad).unsqueeze(-2)
+    # src = torch.arange(10).reshape(2, 5)
+    # pad = 0
+    # print(src != pad)
+    # print((src != pad).unsqueeze(-2))
+
+    # tgt_mask = tgt_mask & Variable(
+    #     subsequent_mask(tgt.size(-1)).type_as(tgt_mask.data))
+    nd = (np.ones(12).reshape([3, 1, 4])).astype("uint8")
+    nd[1, 0, 3] = 0
+    tgt = (torch.from_numpy(nd))
+
+    pad = 0
+    tgt_mask = (tgt != pad).unsqueeze(-2)
+    # tgt_mask = tgt_mask & Variable(
+    #     subsequent_mask(tgt.size(-1)).type_as(tgt_mask.data))
+
+    print(type(tgt_mask))
+
+
 if __name__ == "__main__":
-    test_nn_Embedding()
+    test_mask()
